@@ -147,6 +147,7 @@ def main():
     p.add_argument("--tcn_kernels", type=str, default="3,3,3", help="Comma-separated kernel sizes for TCN blocks")
     p.add_argument("--rnn_layers", type=int, default=2)
     p.add_argument("--rnn_type", type=str, default="lstm", choices=["lstm", "gru", "rnn"])
+    p.add_argument("--num_workers", type=int, default=2, help="DataLoader worker processes for parallel data loading")
     p.add_argument("--val_ratio", type=float, default=0.2)
     p.add_argument("--seed", type=int, default=42)
     p.add_argument("--train_size", type=int, default=200)  # small by default
@@ -295,8 +296,9 @@ def main():
     train_ds = ASLRightHandDataset(train_df, landmarks_dir=landmarks_dir, max_frames=args.max_frames, use_per_row_dir=args.use_supplemental, training=True)
     val_ds = ASLRightHandDataset(val_df, landmarks_dir=landmarks_dir, max_frames=args.max_frames, use_per_row_dir=args.use_supplemental, training=False)
 
-    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, num_workers=0)
-    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn, num_workers=0)
+    use_cuda = device.type == "cuda"
+    train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True, collate_fn=collate_fn, num_workers=args.num_workers, pin_memory=use_cuda, persistent_workers=args.num_workers > 0)
+    val_loader = DataLoader(val_ds, batch_size=args.batch_size, shuffle=False, collate_fn=collate_fn, num_workers=args.num_workers, pin_memory=use_cuda, persistent_workers=args.num_workers > 0)
 
     # Model — 63 landmarks + 63 delta features = 126
     input_dim = 126
