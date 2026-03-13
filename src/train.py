@@ -17,6 +17,11 @@ try:
 except ImportError:
     wandb = None
 
+try:
+    from clearml import Task
+except ImportError:
+    Task = None
+
 from src.models.tcn_bilstm import TCNBiRNN
 from src.models.embedded_rnn import EmbeddedRNN
 from src.data.dataset import ASLRightHandDataset, collate_fn
@@ -184,6 +189,16 @@ def main():
     p.add_argument("--wandb_tags", type=str, default="", help="Comma-separated tags for W&B")
 
     args = p.parse_args()
+
+    # ClearML experiment tracking & queue integration
+    # Appends short task ID to run_name to prevent checkpoint overwrites across runs
+    if Task is not None:
+        _task = Task.init(
+            project_name="fingerspelling_asl",
+            task_name=args.run_name or "train",
+            task_type=Task.TaskTypes.training,
+        )
+        args.run_name = f"{args.run_name or 'train'}_{_task.id[:8]}"
 
     train_csv = args.train_csv
     if not os.path.isabs(train_csv):
