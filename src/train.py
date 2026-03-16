@@ -24,7 +24,8 @@ except ImportError:
 
 from src.data.dataset import ASLRightHandDataset, collate_fn
 from src.data.vocab import build_ctc_vocab, encode_phrase
-from src.models.tcn_bilstm import BiLSTM
+from src.models.embedded_rnn import EmbeddedRNN
+from src.models.tcn_bilstm import TCNBiRNN
 from src.utils.metrics import ctc_greedy_decode, evaluate_metrics
 
 
@@ -377,7 +378,7 @@ def main():
     input_dim = 126
     output_dim = max(int_to_letter.keys()) + 1
 
-    model = BiLSTM(
+    model = EmbeddedRNN(
         input_dim, args.hidden_dim, output_dim, dropout=args.dropout
     ).to(device)
 
@@ -391,7 +392,6 @@ def main():
         factor=0.5,
         patience=3,
     )
-    scaler = torch.cuda.amp.GradScaler(enabled=use_cuda)
 
     # Tracking setup
     run_name = args.run_name or datetime.now().strftime("run_%Y%m%d_%H%M%S")
@@ -434,20 +434,18 @@ def main():
             X = X.to(device)
 
             optimizer.zero_grad()
-            with torch.autocast(device_type=device.type, enabled=use_cuda):
-                log_probs = model(X, in_lens)  # (T, B, C)
-                loss = criterion(log_probs, Y, in_lens, tar_lens)
+            log_probs = model(X, in_lens)  # (T, B, C)
+
+            loss = criterion(log_probs, Y, in_lens, tar_lens)
 
             if torch.isnan(loss) or torch.isinf(loss):
                 print(f"WARNING: skipping batch with loss={loss.item()}")
                 optimizer.zero_grad()
                 continue
 
-            scaler.scale(loss).backward()
-            scaler.unscale_(optimizer)
+            loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
-            scaler.step(optimizer)
-            scaler.update()
+            optimizer.step()
 
             # Simple diagnostics: blank-token dominance and input/target length ratio.
             with torch.no_grad():
@@ -519,7 +517,8 @@ def main():
 
         current_lr = optimizer.param_groups[0]["lr"]
         writer.add_scalar("learning_rate", current_lr, epoch)
-        scheduler.step(metrics_val["cer"])
+        scheduler.step(metrics_val["loss"])
+        # scheduler.step(metrics_val["cer"])
 
         if wandb_enabled:
             payload = {
